@@ -1,18 +1,21 @@
 const { GoogleGenAI } = require("@google/genai");
 
+if (!process.env.GEMINI_API_KEY) {
+  throw new Error("GEMINI_API_KEY is missing");
+}
+
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
 // GENERATE AI RESPONSE
-
 async function generateResponse({ systemPrompt, history }) {
   const maxRetries = 2;
 
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-3.6-flash",
+        model: "gemini-3-flash-preview",
         contents: history,
         config: {
           maxOutputTokens: 1024,
@@ -32,10 +35,11 @@ async function generateResponse({ systemPrompt, history }) {
       if (status === 503 && attempt <= maxRetries) {
         const delay = 1500 * 2 ** (attempt - 1);
 
-        console.log(`Gemini busy. Retrying in ${delay / 1000} seconds...`);
+        console.log(
+          `Gemini busy. Retrying in ${delay / 1000} seconds...`
+        );
 
         await new Promise((resolve) => setTimeout(resolve, delay));
-
         continue;
       }
 
@@ -45,7 +49,6 @@ async function generateResponse({ systemPrompt, history }) {
 }
 
 // GENERATE VECTOR
-
 async function generateVector(content) {
   try {
     if (typeof content !== "string" || !content.trim()) {
@@ -54,22 +57,24 @@ async function generateVector(content) {
 
     const response = await ai.models.embedContent({
       model: "gemini-embedding-2",
-
       contents: content,
-
       config: {
         outputDimensionality: 768,
       },
     });
 
-    return response.embeddings[0].values;
+    const vector = response.embeddings?.[0]?.values;
+
+    if (!vector || vector.length === 0) {
+      throw new Error("Gemini returned an empty embedding");
+    }
+
+    return vector;
   } catch (error) {
     console.error("Embedding Error:", error.message);
     throw error;
   }
 }
-
-// EXPORT
 
 module.exports = {
   generateResponse,

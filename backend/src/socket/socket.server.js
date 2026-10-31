@@ -1,6 +1,7 @@
 const { parse } = require("cookie");
 const { Server } = require("socket.io");
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
 
 const userModel = require("../models/auth.model.js");
 const messageModel = require("../models/message.model.js");
@@ -10,38 +11,39 @@ const { createMemory, queryMemory } = require("../services/vector.service.js");
 
 const aiService = require("../services/ai.service.js");
 
-// =====================================================
-// INIT SOCKET SERVER
-// =====================================================
-
+// Initialize Socket.IO
 function initSocketServer(httpServer) {
+  const allowedOrigins = [
+    process.env.FRONTEND_URL,
+    "https://ragmatechatapp-ai.onrender.com",
+    "http://localhost:5173",
+  ].filter(Boolean);
+
   const io = new Server(httpServer, {
     cors: {
-      origin: [
-        process.env.FRONTEND_URL,
-        "https://ragmatechatapp-ai.onrender.com",
-        "http://localhost:5173",
-      ].filter(Boolean),
+      origin: allowedOrigins,
       credentials: true,
     },
   });
 
-  // =====================================================
-  // SOCKET AUTHENTICATION (MIDDLEWARE)
-  // =====================================================
-
+  // Socket authentication
   io.use(async (socket, next) => {
     try {
+      if (!process.env.JWT_SECRET) {
+        throw new Error("JWT_SECRET is missing");
+      }
+
       const cookieHeader = socket.handshake.headers?.cookie || "";
-
       const cookies = parse(cookieHeader);
+      const token = cookies.token;
 
-      if (!cookies.token) {
+      if (!token) {
         return next(new Error("No token provided"));
       }
 
-      const decoded = jwt.verify(cookies.token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+      // JWT was created using { id: user._id }
       const user = await userModel.findById(decoded.id);
 
       if (!user) {
@@ -53,41 +55,31 @@ function initSocketServer(httpServer) {
       next();
     } catch (error) {
       console.error("Socket Auth Error:", error.message);
-
       next(new Error("Authentication failed"));
     }
   });
 
-  // =====================================================
-  // CONNECTION
-  // =====================================================
-
+  // User connection
   io.on("connection", (socket) => {
     console.log("User connected:", socket.user._id.toString());
 
-    // ===================================================
-    // AI MESSAGE
-    // ===================================================
-
+    // AI message event
     socket.on("ai-message", async (messagePayload) => {
       try {
-        // -----------------------------------------------
-        // 1. Validate Message
-        // -----------------------------------------------
-
         const chatId = messagePayload?.chat;
-        const content = messagePayload?.content?.trim();
+        const content =
+          typeof messagePayload?.content === "string"
+            ? messagePayload.content.trim()
+            : "";
 
-        if (!chatId || !content) {
+        // Validate message
+        if (!chatId || !mongoose.Types.ObjectId.isValid(chatId) || !content) {
           return socket.emit("ai-response", {
             error: "Invalid message payload",
           });
         }
 
-        // -----------------------------------------------
-        // 2. Verify Chat Ownership
-        // -----------------------------------------------
-
+        // Verify chat ownership
         const chat = await chatModel.findOne({
           _id: chatId,
           user: socket.user._id,
@@ -99,27 +91,17 @@ function initSocketServer(httpServer) {
           });
         }
 
-        // -----------------------------------------------
+        // Save user message and generate its vector
+        const userMessage = await messageModel.create({
+          chat: chatId,
+          user: socket.user._id,
+          content,
+          role: "user",
+        });
 
-        // 3. Create User Vector
-        // 4. Save User Message
-        // -----------------------------------------------
+        const userVector = await aiService.generateVector(content);
 
-        const [userMessage, userVector] = await Promise.all([
-          messageModel.create({
-            chat: chatId,
-            user: socket.user._id,
-            content,
-            role: "user",
-          }),
-
-          aiService.generateVector(content),
-        ]);
-
-        // -----------------------------------------------
-        // 4 Save User Memory (pinecone db)  user jo question pucha ho db mei save kiye
-        // -----------------------------------------------
-
+        // Save user memory in Pinecone
         await createMemory({
           vectors: userVector,
           messageId: userMessage._id,
@@ -131,10 +113,12 @@ function initSocketServer(httpServer) {
           },
         });
 
-        // -----------------------------------------------
-        // 6. Query Memory + Chat History
-        // -----------------------------------------------
+        // Update chat activity
+        await chatModel.findByIdAndUpdate(chatId, {
+          lastActivity: new Date(),
+        });
 
+        // Get relevant memory and chat history
         const [memory, chatHistory] = await Promise.all([
           queryMemory({
             queryVector: userVector,
@@ -147,22 +131,16 @@ function initSocketServer(httpServer) {
           messageModel
             .find({
               chat: chatId,
+              user: socket.user._id,
             })
-            .sort({
-              createdAt: -1,
-            })
+            .sort({ createdAt: -1 })
             .limit(20),
         ]);
 
-        // Newest → Oldest
-        // Convert to Oldest → Newest
-
+        // Convert history to oldest -> newest
         chatHistory.reverse();
 
-        // -----------------------------------------------
-        // 7. Convert History to Gemini Format
-        // -----------------------------------------------
-
+        // Convert history to Gemini format
         const history = chatHistory.map((message) => ({
           role: message.role === "model" ? "model" : "user",
           parts: [
@@ -172,32 +150,29 @@ function initSocketServer(httpServer) {
           ],
         }));
 
-        // -----------------------------------------------
-        // 8. Prepare Long-Term Memory
-        // -----------------------------------------------
-
-        const memoryText = memory
+        // Prepare long-term memory
+        const memoryText = (memory || [])
           .map((item) => item?.metadata?.text)
           .filter(Boolean)
           .join("\n");
 
-        // -----------------------------------------------
-        // 9. System Prompt
-        // -----------------------------------------------
+        // System prompt
+        const systemPrompt = `
+You are an AI assistant.
 
-        const systemPrompt = `You are an AI assistant.use the following relevant long-term memories when they are useful.
-        Long-term memories:${memoryText || "No relevant memories found."}
-        Instructions:
-      - Answer the user's latest message clearly.
-      - Use memories naturally when relevant.
-      - Do not mention the memory system.
-      - Do not repeat irrelevant memories.
-        `;
+Use the following relevant long-term memories when useful.
 
-        // -----------------------------------------------
-        // 10. Generate AI Response
-        // -----------------------------------------------
+Long-term memories:
+${memoryText || "No relevant memories found."}
 
+Instructions:
+- Answer the user's latest message clearly.
+- Use memories naturally when relevant.
+- Do not mention the memory system.
+- Do not repeat irrelevant memories.
+`;
+
+        // Generate AI response
         console.time("Gemini Response Time");
 
         const response = await aiService.generateResponse({
@@ -207,26 +182,22 @@ function initSocketServer(httpServer) {
 
         console.timeEnd("Gemini Response Time");
 
-        // -----------------------------------------------
-        // 11. Save AI Response
-        // +
-        // 12. Generate AI Vector
-        // -----------------------------------------------
+        if (typeof response !== "string" || !response.trim()) {
+          throw new Error("AI returned an empty response");
+        }
 
-        const [responseMessage, responseVector] = await Promise.all([
-          messageModel.create({
-            chat: chatId,
-            content: response,
-            role: "model",
-          }),
+        // Save AI response
+        const responseMessage = await messageModel.create({
+          chat: chatId,
+          user: socket.user._id,
+          content: response,
+          role: "model",
+        });
 
-          aiService.generateVector(response),
-        ]);
+        // Generate AI response vector
+        const responseVector = await aiService.generateVector(response);
 
-        // -----------------------------------------------
-        // 13. Save AI Memory
-        // -----------------------------------------------
-
+        // Save AI memory
         await createMemory({
           vectors: responseVector,
           messageId: responseMessage._id,
@@ -238,16 +209,18 @@ function initSocketServer(httpServer) {
           },
         });
 
-        // -----------------------------------------------
-        // 14. Send Response to Frontend
-        // -----------------------------------------------
+        // Update chat activity
+        await chatModel.findByIdAndUpdate(chatId, {
+          lastActivity: new Date(),
+        });
 
+        // Send response to frontend
         socket.emit("ai-response", {
           content: response,
           chat: chatId,
         });
       } catch (error) {
-        console.error("AI ERROR:", error);
+        console.error("AI MESSAGE ERROR:", error);
 
         socket.emit("ai-response", {
           error: "AI response generate nahi ho paya",
@@ -255,12 +228,9 @@ function initSocketServer(httpServer) {
       }
     });
 
-    // ===================================================
-    // DISCONNECT
-    // ===================================================
-
-    socket.on("disconnect", () => {
-      console.log("User disconnected:", socket.user._id.toString());
+    // User disconnect
+    socket.on("disconnect", (reason) => {
+      console.log("User disconnected:", socket.user._id.toString(), reason);
     });
   });
 

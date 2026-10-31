@@ -90,17 +90,17 @@ function AuthScreen({ onAuth }) {
       const body =
         mode === "login"
           ? {
-            email: form.email,
-            password: form.password,
-          }
+              email: form.email,
+              password: form.password,
+            }
           : {
-            fullName: {
-              firstName: form.firstName,
-              lastName: form.lastName,
-            },
-            email: form.email,
-            password: form.password,
-          };
+              fullName: {
+                firstName: form.firstName,
+                lastName: form.lastName,
+              },
+              email: form.email,
+              password: form.password,
+            };
 
       const data = await request(
         `/api/auth/${mode === "login" ? "login" : "register"}`,
@@ -208,6 +208,8 @@ function App() {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
+    if (!user) return;
+
     const socket = io(API_URL, {
       withCredentials: true,
       transports: ["websocket", "polling"],
@@ -227,8 +229,10 @@ function App() {
       setConnected(false);
     });
 
-    return () => socket.disconnect();
-  }, []);
+    return () => {
+      socket.disconnect();
+    };
+  }, [user]);
 
   return (
     <main className="app-shell">

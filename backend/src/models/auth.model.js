@@ -6,25 +6,33 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
+      lowercase: true,
+      trim: true,
     },
 
-    
     fullName: {
       firstName: {
         type: String,
         required: true,
+        trim: true,
       },
+
       lastName: {
         type: String,
         required: true,
+        trim: true,
       },
     },
 
     password: {
       type: String,
+      required: true,
+      select: true,
     },
   },
-  { timestamps: true },
+  {
+    timestamps: true,
+  }
 );
 
 const userModel = mongoose.model("user", userSchema);

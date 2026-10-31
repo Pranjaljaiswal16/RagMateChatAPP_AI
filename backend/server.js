@@ -15,10 +15,10 @@ async function startServer() {
     await connectDB();
 
     httpServer.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server is running on port ${PORT}`);
+      console.log(`Server running on port ${PORT}`);
     });
   } catch (error) {
-    console.error("Server startup failed:", error);
+    console.error("Server startup failed:", error.message);
     process.exit(1);
   }
 }
