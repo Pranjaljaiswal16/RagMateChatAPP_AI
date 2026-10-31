@@ -1,4 +1,42 @@
 const chatModel = require("../models/chat.model.js");
+const messageModel = require("../models/message.model.js");
+
+async function listChats(req, res) {
+  try {
+    const chats = await chatModel
+      .find({ user: req.user._id })
+      .sort({ lastActivity: -1, createdAt: -1 })
+      .select("_id title lastActivity createdAt");
+
+    return res.status(200).json({ success: true, chats });
+  } catch (error) {
+    console.error("LIST CHATS ERROR:", error);
+    return res.status(500).json({ success: false, message: "Unable to load chats" });
+  }
+}
+
+async function getChatMessages(req, res) {
+  try {
+    const chat = await chatModel.findOne({
+      _id: req.params.chatId,
+      user: req.user._id,
+    });
+
+    if (!chat) {
+      return res.status(404).json({ success: false, message: "Chat not found" });
+    }
+
+    const messages = await messageModel
+      .find({ chat: chat._id, user: req.user._id, role: { $in: ["user", "model"] } })
+      .sort({ createdAt: 1 })
+      .select("_id content role createdAt");
+
+    return res.status(200).json({ success: true, messages });
+  } catch (error) {
+    console.error("GET CHAT MESSAGES ERROR:", error);
+    return res.status(500).json({ success: false, message: "Unable to load messages" });
+  }
+}
 
 async function createChat(req, res) {
   try {
@@ -42,4 +80,4 @@ async function createChat(req, res) {
   }
 }
 
-module.exports = { createChat };
+module.exports = { createChat, listChats, getChatMessages };
