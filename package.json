@@ -13,14 +13,14 @@
     "nodemon": "^3.1.14",
     "socket.io": "^4.8.3"
   },
-  "name": "backend",
+  "name": "ragmate-ai",
   "version": "1.0.0",
-  "description": "",
-  "main": "server.js",
+  "description": "RagMate AI",
+  "main": "backend/server.js",
   "scripts": {
     "dev": "nodemon backend/server.js",
-    "build": "npm install && npm install --prefix frontend && npm run build --prefix frontend",
-    "start": "nodemon backend/server.js"
+    "build": "npm install --prefix backend && npm install --prefix frontend && npm run build --prefix frontend",
+    "start": "node backend/server.js"
   },
   "keywords": [],
   "author": "",
