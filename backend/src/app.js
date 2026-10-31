@@ -11,6 +11,7 @@ const app = express();
 // Allowed frontend URLs
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  "https://ragmatechatapp-ai.onrender.com",
   "http://localhost:5173",
 ].filter(Boolean);
 

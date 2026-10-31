@@ -17,9 +17,11 @@ const aiService = require("../services/ai.service.js");
 function initSocketServer(httpServer) {
   const io = new Server(httpServer, {
     cors: {
-      origin: [process.env.FRONTEND_URL, "http://localhost:5173"].filter(
-        Boolean,
-      ),
+      origin: [
+        process.env.FRONTEND_URL,
+        "https://ragmatechatapp-ai.onrender.com",
+        "http://localhost:5173",
+      ].filter(Boolean),
       credentials: true,
     },
   });

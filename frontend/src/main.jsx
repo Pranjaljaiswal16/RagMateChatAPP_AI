@@ -15,7 +15,7 @@ import {
 import "./styles.css";
 
 // Backend URL
-const API_URL = "https://ragmate-chatapp.onrender.com";
+const API_URL = "https://ragmatechatapp-ai.onrender.com";
 
 // API Request Function
 async function request(path, options = {}) {
@@ -90,17 +90,17 @@ function AuthScreen({ onAuth }) {
       const body =
         mode === "login"
           ? {
-              email: form.email,
-              password: form.password,
-            }
+            email: form.email,
+            password: form.password,
+          }
           : {
-              fullName: {
-                firstName: form.firstName,
-                lastName: form.lastName,
-              },
-              email: form.email,
-              password: form.password,
-            };
+            fullName: {
+              firstName: form.firstName,
+              lastName: form.lastName,
+            },
+            email: form.email,
+            password: form.password,
+          };
 
       const data = await request(
         `/api/auth/${mode === "login" ? "login" : "register"}`,
